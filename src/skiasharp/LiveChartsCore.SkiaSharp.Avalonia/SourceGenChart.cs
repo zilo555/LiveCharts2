@@ -53,6 +53,8 @@ public abstract partial class SourceGenChart : UserControl, IChartView, ICustomH
     private DateTime _lastPresed;
     private readonly int _tolearance = 50;
     private bool _wasInViewport;
+    private bool _isPointerDown;
+    private LvcPoint _lastPointerPosition;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SourceGenChart"/> class.
@@ -69,6 +71,7 @@ public abstract partial class SourceGenChart : UserControl, IChartView, ICustomH
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
         PointerExited += OnPointerLeave;
+        PointerCaptureLost += OnPointerCaptureLost;
 
         SizeChanged += (s, e) =>
             CoreChart.Update();
@@ -148,7 +151,9 @@ public abstract partial class SourceGenChart : UserControl, IChartView, ICustomH
             e.GetCurrentPoint(this).Properties.IsRightButtonPressed ||
             (DateTime.Now - _lastPresed).TotalMilliseconds < 500;
 
-        CoreChart?.InvokePointerDown(new LvcPoint((float)p.X, (float)p.Y), isSecondary);
+        _isPointerDown = true;
+        _lastPointerPosition = new LvcPoint((float)p.X, (float)p.Y);
+        CoreChart?.InvokePointerDown(_lastPointerPosition, isSecondary);
         _lastPresed = DateTime.Now;
     }
 
@@ -164,7 +169,8 @@ public abstract partial class SourceGenChart : UserControl, IChartView, ICustomH
                 PointerMoveCommand.Execute(args);
         }
 
-        CoreChart?.InvokePointerMove(new LvcPoint((float)p.X, (float)p.Y));
+        _lastPointerPosition = new LvcPoint((float)p.X, (float)p.Y);
+        CoreChart?.InvokePointerMove(_lastPointerPosition);
     }
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -179,7 +185,20 @@ public abstract partial class SourceGenChart : UserControl, IChartView, ICustomH
                 PointerReleasedCommand.Execute(args);
         }
 
-        CoreChart?.InvokePointerUp(new LvcPoint((float)p.X, (float)p.Y), e.GetCurrentPoint(this).Properties.IsRightButtonPressed);
+        _isPointerDown = false;
+        _lastPointerPosition = new LvcPoint((float)p.X, (float)p.Y);
+        CoreChart?.InvokePointerUp(_lastPointerPosition, e.GetCurrentPoint(this).Properties.IsRightButtonPressed);
+    }
+
+    // When an ancestor (e.g. a button wrapping the chart, see #1576) re-captures
+    // the pointer mid-gesture, the chart never receives PointerReleased and pan/drag
+    // state stays armed; any subsequent PointerMoved keeps panning. Treat capture
+    // loss as a synthetic pointer-up so the drag state always releases.
+    private void OnPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        if (!_isPointerDown) return;
+        _isPointerDown = false;
+        CoreChart?.InvokePointerUp(_lastPointerPosition, false);
     }
 
     private void OnPointerLeave(object? sender, PointerEventArgs e) =>

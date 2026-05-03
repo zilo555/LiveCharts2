@@ -46,6 +46,8 @@ namespace LiveChartsGeneratedCode;
 /// <inheritdoc cref="IChartView" />
 public abstract partial class SourceGenChart : UserControl, IChartView
 {
+    private bool _isPointerDown;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Chart"/> class.
     /// </summary>
@@ -64,6 +66,7 @@ public abstract partial class SourceGenChart : UserControl, IChartView
         MouseMove += OnMouseMove;
         MouseUp += Chart_MouseUp;
         MouseLeave += OnMouseLeave;
+        LostMouseCapture += OnLostMouseCapture;
 
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -116,6 +119,7 @@ public abstract partial class SourceGenChart : UserControl, IChartView
         if (PointerPressedCommand?.CanExecute(cArgs) == true)
             PointerPressedCommand.Execute(cArgs);
 
+        _isPointerDown = true;
         CoreChart?.InvokePointerDown(new(p.X, p.Y), e.ChangedButton == MouseButton.Right);
     }
 
@@ -141,8 +145,23 @@ public abstract partial class SourceGenChart : UserControl, IChartView
         if (PointerReleasedCommand?.CanExecute(cArgs) == true)
             PointerReleasedCommand.Execute(cArgs);
 
+        _isPointerDown = false;
         CoreChart?.InvokePointerUp(new(p.X, p.Y), e.ChangedButton == MouseButton.Right);
         ReleaseMouseCapture();
+    }
+
+    // When an ancestor (e.g. a ToggleButton wrapping the chart, see #1576) calls
+    // CaptureMouse() during the same mouse-down burst, capture is transferred away
+    // from the chart and the chart never receives MouseUp; pan/drag state then stays
+    // armed and any subsequent MouseMove keeps panning. Treat capture loss as a
+    // synthetic pointer-up so the drag state always releases.
+    private void OnLostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (!_isPointerDown) return;
+        _isPointerDown = false;
+
+        var p = Mouse.GetPosition(this);
+        CoreChart?.InvokePointerUp(new(p.X, p.Y), false);
     }
 
     private void OnMouseLeave(object sender, MouseEventArgs e) =>
