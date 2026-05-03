@@ -54,6 +54,7 @@ runs:
       uses: actions/download-artifact@v7.0.0
       with:
         path: ./artifacts
+        pattern: "*-package"
 
     - name: Configure NuGet sources 
       if: ${{ inputs.test-type == 'factos' || inputs.test-type == 'factos-android' || inputs.test-type == 'factos-ios' }}
