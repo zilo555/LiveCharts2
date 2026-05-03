@@ -2,10 +2,6 @@ using Factos;
 using SharedUITests.Helpers;
 using Xunit;
 
-#if MAUI_UI_TESTING
-using Microsoft.Maui.Controls;
-#endif
-
 // to run these tests, see the UITests project, specially the program.cs file.
 // to enable IDE intellisense for these tests, go to Directory.Build.props and set UITesting to true.
 
@@ -15,20 +11,22 @@ public class DisposeTests
 {
     public AppController App => AppController.Current;
 
-#if MAUI_UI_TESTING
+#if XAML_UI_TESTING
     // https://github.com/Live-Charts/LiveCharts2/issues/1725
     //
     // A chart removed from the visual tree must be collectable — its inner MotionCanvas /
     // SKCanvasView occupy substantial memory and the original report describes them piling up
-    // page-after-page. Today the symptom does not reproduce on Maui 10 because Maui's
-    // Application.RequestedThemeChanged uses a WeakEventManager, so a chart's `this`-capturing
-    // theme subscription does not actually root the chart. This test is a canary: if a future
-    // Maui (or our own code) regresses to holding charts strongly via an app-level event,
-    // accumulator field, or static collection, this test fires.
+    // page-after-page on Maui 8. The symptom no longer reproduces on Maui 10 (Application
+    // events are routed through a WeakEventManager) but the same invariant — unloaded chart
+    // is GC-able — should hold on every Xaml platform we ship. This canary fires if a future
+    // platform release (or our own code) regresses to a strong app-level root on charts:
+    // a `this`-capturing event subscription that's never detached, an accumulator field, a
+    // static collection, etc.
     //
-    // We weak-ref the charts directly, not the parent page. In Maui 10+, Element.Parent is a
-    // WeakReference, so a strong root on a chart does not propagate up to its parent — testing
-    // page survival would silently miss a real chart leak.
+    // Each platform's Test/Dispose/View exposes `ChangeContent()` that swaps the inner
+    // content for a fresh one and returns the chart objects from the swapped-out instance.
+    // We weak-ref the charts directly because Maui 10's Element.Parent is a WeakReference,
+    // so testing leaks via "did the parent page survive?" silently misses real chart leaks.
     [AppTestMethod]
     public async Task UnloadedChartsShouldBeCollectable_Issue1725()
     {
@@ -40,18 +38,18 @@ public class DisposeTests
         const int Iterations = 5;
         for (var i = 0; i < Iterations; i++)
         {
-            // Inline the call so the swapped-out page is never bound to a named local; a local
-            // declared inside this loop would be hoisted by the async state machine into a
-            // long-lived field that survives across the awaits below, masking the leak.
-            CaptureChartWeakRefs(sut.ChangeContent(), weakRefs);
+            // Add the weak refs in a non-async helper so the swapped-out chart references
+            // are never bound to locals that the async state machine could hoist into
+            // long-lived fields surviving across the awaits below.
+            AddWeakRefs(weakRefs, sut.ChangeContent());
             await Task.Delay(500);
         }
 
         // One untracked extra swap to push the most-recent tracked instance out of any
-        // transient reference Maui's layout/dispatcher holds for the latest unload.
+        // transient reference the platform's layout/dispatcher holds for the latest unload.
         _ = sut.ChangeContent();
 
-        // Let Maui's dispatcher drain any queued unload work.
+        // Let the platform's dispatcher drain any queued unload work.
         await Task.Delay(2000);
 
         GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -68,12 +66,10 @@ public class DisposeTests
             "https://github.com/Live-Charts/LiveCharts2/issues/1725.");
     }
 
-    private static void CaptureChartWeakRefs(ContentView swappedOutPage, List<WeakReference> weakRefs)
+    private static void AddWeakRefs(List<WeakReference> refs, object[] objects)
     {
-        if (swappedOutPage.Content is not Grid grid) return;
-        foreach (var child in grid.Children)
-            if (child is View view)
-                weakRefs.Add(new WeakReference(view));
+        foreach (var o in objects)
+            refs.Add(new WeakReference(o));
     }
 #endif
 }
