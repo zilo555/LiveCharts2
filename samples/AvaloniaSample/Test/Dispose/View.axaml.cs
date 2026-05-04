@@ -21,6 +21,14 @@ public partial class View : UserControl
         return GetCharts(swappedOut);
     }
 
+    public void ReattachSameInstance()
+    {
+        var content = this.Find<ContentControl>("content")!;
+        var page = (UserControl1)content.Content!;
+        content.Content = null;
+        content.Content = page;
+    }
+
     private static object[] GetCharts(UserControl1 uc)
     {
         if (uc.Content is not Grid grid) return [];

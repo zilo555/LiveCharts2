@@ -82,5 +82,25 @@ public class DisposeTests
         foreach (var o in objects)
             refs.Add(new WeakReference(o));
     }
+
+    // Smoke test: a chart removed and immediately re-added (same instance) must
+    // survive the round-trip. Specifically guards the Apple-side fix in
+    // SourceGenChart.OnUnloaded — `Handler?.DisconnectHandler()` plus the
+    // platform's auto-disconnect default must leave the element ready for a
+    // fresh handler on the next attach. If we ever reuse a handler with a
+    // disposed PointerController (recognizers nulled by DisposeController on
+    // Mac/iOS), this test crashes in InitializeController.
+    [AppTestMethod]
+    public async Task ChartShouldSurviveReattachOfSameInstance_Issue1725()
+    {
+        var sut = await App.NavigateTo<Samples.Test.Dispose.View>();
+        await Task.Delay(1000);
+
+        for (var i = 0; i < 3; i++)
+        {
+            sut.ReattachSameInstance();
+            await Task.Delay(500);
+        }
+    }
 #endif
 }

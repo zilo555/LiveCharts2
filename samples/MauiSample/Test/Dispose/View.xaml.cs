@@ -25,6 +25,13 @@ public partial class View : ContentPage
         return GetCharts(swappedOut);
     }
 
+    public void ReattachSameInstance()
+    {
+        _ = container.Remove(_currentView);
+        Grid.SetRow(_currentView, 1);
+        container.Add(_currentView);
+    }
+
     private static object[] GetCharts(NewPage1 page)
     {
         if (page.Content is not Grid grid) return [];
