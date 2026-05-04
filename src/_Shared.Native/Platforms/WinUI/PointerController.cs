@@ -139,9 +139,12 @@ internal partial class PointerController : INativePointerController
         if (!_isPointerDown) return;
         _isPointerDown = false;
 
+        // Mark this Released as synthetic so the shared OnReleased handler skips
+        // PointerReleasedCommand: the user is still holding the button; we are
+        // raising this only so the core chart can release its pan/drag state.
         Released?.Invoke(
             sender,
-            new(_lastPointerPosition, _wasSecondaryPress, e));
+            new(_lastPointerPosition, _wasSecondaryPress, isSyntheticRelease: true, e));
     }
 
     private void OnWindowsPointerWheelChanged(object sender, PointerRoutedEventArgs e)
