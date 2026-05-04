@@ -43,6 +43,7 @@ using Avalonia.Threading;
 using System;
 using System.Reflection;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using LiveChartsCore.Native.Events;
 using Microsoft.UI.Xaml;
 #endif
@@ -273,6 +274,45 @@ public class PointerCaptureLostTests
             "synthetic Released raised on PointerCaptureLost must replay the original press's secondary-button flag; otherwise right-click drags interrupted by capture-loss are reported as primary releases.");
     }
 
+    // regression for https://github.com/Live-Charts/LiveCharts2/issues/1576 on the
+    // WinUI/Uno-Skia chart: the synthetic Released that the controller raises on
+    // PointerCaptureLost flows through the shared OnReleased handler, which used
+    // to fire PointerReleasedCommand for any release. The user has not actually
+    // lifted the pointer when capture is stolen, so the public command must NOT
+    // fire — only the core chart's internal pan/drag state should release.
+    [AppTestMethod]
+    public async Task WinUI_pointer_capture_lost_does_not_fire_pointer_released_command()
+    {
+        var sut = await App.NavigateTo<Samples.General.FirstChart.View>();
+        await sut.Chart.WaitUntilChartRenders();
+
+        var chart = (FrameworkElement)sut.Chart;
+
+        var (pc, captureLost) = ResolvePointerControllerAndCaptureLostMethod(chart);
+
+        var pcType = pc.GetType();
+        var isDownField = pcType.GetField("_isPointerDown", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(isDownField);
+
+        var commandProperty = chart.GetType().GetProperty("PointerReleasedCommand");
+        Assert.NotNull(commandProperty);
+
+        var commandFired = false;
+        var probe = new ProbeCommand(() => commandFired = true);
+
+        await RunOnDispatcherAsync(chart, () =>
+        {
+            commandProperty!.SetValue(chart, probe);
+            isDownField!.SetValue(pc, true);
+
+            _ = captureLost.Invoke(pc, [null!, null!]);
+        });
+
+        Assert.False(
+            commandFired,
+            "PointerReleasedCommand must not be invoked when capture-loss synthesizes a release; the user has not actually lifted the pointer and the command's contract is 'real user release'.");
+    }
+
     private static (object Controller, MethodInfo CaptureLost) ResolvePointerControllerAndCaptureLostMethod(FrameworkElement chart)
     {
         var sourceGenChartType = WalkBaseTypes(chart.GetType(), "SourceGenChart");
@@ -313,6 +353,13 @@ public class PointerCaptureLostTests
             tcs.SetException(new InvalidOperationException("Failed to enqueue work on the chart's DispatcherQueue."));
         }
         return tcs.Task;
+    }
+
+    private sealed class ProbeCommand(Action onExecute) : ICommand
+    {
+        public event EventHandler? CanExecuteChanged { add { } remove { } }
+        public bool CanExecute(object? parameter) => true;
+        public void Execute(object? parameter) => onExecute();
     }
 #endif
 
