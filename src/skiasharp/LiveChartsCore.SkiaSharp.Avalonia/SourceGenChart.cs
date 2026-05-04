@@ -175,6 +175,12 @@ public abstract partial class SourceGenChart : UserControl, IChartView, ICustomH
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
+        // Always clear the press flag, even when bailing out via the tolerance
+        // early-return below; otherwise a fast press-release leaves _isPointerDown
+        // stuck true and a later unrelated PointerCaptureLost would fire a phantom
+        // synthetic pointer-up.
+        _isPointerDown = false;
+
         if ((DateTime.Now - _lastPresed).TotalMilliseconds < _tolearance) return;
         var p = e.GetPosition(this);
 
@@ -185,7 +191,6 @@ public abstract partial class SourceGenChart : UserControl, IChartView, ICustomH
                 PointerReleasedCommand.Execute(args);
         }
 
-        _isPointerDown = false;
         _lastPointerPosition = new LvcPoint((float)p.X, (float)p.Y);
         CoreChart?.InvokePointerUp(_lastPointerPosition, e.GetCurrentPoint(this).Properties.IsRightButtonPressed);
     }
