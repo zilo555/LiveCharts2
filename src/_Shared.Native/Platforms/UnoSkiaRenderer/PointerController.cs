@@ -38,6 +38,10 @@ internal partial class PointerController : INativePointerController
 {
     private bool _isPinching;
     private bool _isPointerDown;
+    // Remember the original press's button so the synthetic release we raise on
+    // PointerCaptureLost reports the same button (right-click drags interrupted by
+    // an ancestor capture-steal must not be reported as a primary-button release).
+    private bool _wasSecondaryPress;
     private LiveChartsCore.Drawing.LvcPoint _lastPointerPosition;
     private DateTime _pressedTime;
 
@@ -86,11 +90,12 @@ internal partial class PointerController : INativePointerController
 #endif
 
         _isPointerDown = true;
+        _wasSecondaryPress = p.Properties.IsRightButtonPressed;
         _lastPointerPosition = new(p.Position.X, p.Position.Y);
 
         Pressed?.Invoke(
             sender,
-            new(_lastPointerPosition, p.Properties.IsRightButtonPressed, e));
+            new(_lastPointerPosition, _wasSecondaryPress, e));
 
         _pressedTime = DateTime.Now;
     }
@@ -138,7 +143,7 @@ internal partial class PointerController : INativePointerController
 
         Released?.Invoke(
             sender,
-            new(_lastPointerPosition, false, e));
+            new(_lastPointerPosition, _wasSecondaryPress, e));
     }
 
     private void OnUnoSkiaPointerWheelChanged(object sender, PointerRoutedEventArgs e)
