@@ -106,6 +106,58 @@ public class PointerCaptureLostTests
             "_isPointerDown must be armed before PointerPressedCommand fires; otherwise a capture transfer triggered from inside the command would leave the LostMouseCapture recovery handler unable to detect the in-flight gesture (#1576).");
     }
 
+    // regression sister to Wpf_lost_mouse_capture_releases_drag_state.
+    // Pre-fix: _isPointerDown was cleared AFTER PointerReleasedCommand executed.
+    // If user code inside the command synchronously changed capture (e.g.
+    // focused or captured another element), WPF raised LostMouseCapture on the
+    // chart immediately and the recovery handler synthesized a redundant
+    // pointer-up on top of the real release. Clearing the flag first keeps the
+    // release path single-shot.
+    [AppTestMethod]
+    public async Task Wpf_pointer_released_command_observes_pointer_down_cleared()
+    {
+        var sut = await App.NavigateTo<Samples.General.FirstChart.View>();
+        await sut.Chart.WaitUntilChartRenders();
+
+        var chart = (FrameworkElement)sut.Chart;
+
+        var sourceGenChartType = WalkBaseTypes(chart.GetType(), "SourceGenChart");
+        Assert.NotNull(sourceGenChartType);
+        var isPointerDownField = sourceGenChartType!.GetField(
+            "_isPointerDown", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(isPointerDownField);
+        var mouseUp = sourceGenChartType.GetMethod(
+            "Chart_MouseUp", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(mouseUp);
+
+        var commandProperty = chart.GetType().GetProperty("PointerReleasedCommand");
+        Assert.NotNull(commandProperty);
+
+        bool? observedFlag = null;
+        var probe = new ProbeCommand(() => observedFlag = (bool)isPointerDownField!.GetValue(chart)!);
+
+        await chart.Dispatcher.InvokeAsync(() =>
+        {
+            commandProperty!.SetValue(chart, probe);
+
+            // Pre-arm the flag (as if a real press had just occurred) and drive
+            // Chart_MouseUp directly. The probe records the value of
+            // _isPointerDown at the moment the user's command fires.
+            isPointerDownField!.SetValue(chart, true);
+
+            var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.MouseUpEvent,
+                Source = chart,
+            };
+            _ = mouseUp!.Invoke(chart, [chart, args]);
+        });
+
+        Assert.False(
+            observedFlag,
+            "_isPointerDown must be cleared before PointerReleasedCommand fires; otherwise a capture change triggered from inside the command would cause LostMouseCapture to synthesize a redundant pointer-up on top of the real release (#1576).");
+    }
+
     // regression for https://github.com/Live-Charts/LiveCharts2/issues/1576
     // when an ancestor (e.g. a ToggleButton wrapping the chart) calls CaptureMouse
     // during the same mouse-down burst, capture is stolen from the chart and the
