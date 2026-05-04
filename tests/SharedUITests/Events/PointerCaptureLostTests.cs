@@ -460,7 +460,62 @@ public class PointerCaptureLostTests
 
 #endif
 
-#if WPF_UI_TESTING || AVALONIA_UI_TESTING || WINUI_UI_TESTING || UNO_UI_TESTING
+#if MAUI_UI_TESTING
+    // regression for https://github.com/Live-Charts/LiveCharts2/issues/1576 on
+    // MAUI: MAUI on Windows uses the same shared PointerController as WinUI/Uno
+    // and the controller raises a synthetic Released on PointerCaptureLost.
+    // Pre-fix, MAUI's OnReleased unconditionally invoked ReleasedCommand, so
+    // MAUI/Windows apps still received a public release callback when capture
+    // was stolen mid-drag. The guard in OnReleased must skip the command when
+    // args.IsSyntheticRelease is set.
+    [AppTestMethod]
+    public async Task Maui_synthetic_release_does_not_fire_released_command()
+    {
+        var sut = await App.NavigateTo<Samples.General.FirstChart.View>();
+        await sut.Chart.WaitUntilChartRenders();
+
+        var chart = (Microsoft.Maui.Controls.View)sut.Chart;
+
+        var sourceGenChartType = WalkBaseTypes(chart.GetType(), "SourceGenChart");
+        Assert.NotNull(sourceGenChartType);
+
+        // OnReleased is internal override; reflect into it so we can drive a
+        // synthetic-release directly without going through the platform
+        // PointerController.
+        var onReleased = sourceGenChartType!.GetMethod(
+            "OnReleased",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(object), typeof(LiveChartsCore.Native.Events.PressedEventArgs)],
+            modifiers: null);
+        Assert.NotNull(onReleased);
+
+        var commandProperty = chart.GetType().GetProperty("ReleasedCommand");
+        Assert.NotNull(commandProperty);
+
+        var commandFired = false;
+        var probe = new ProbeCommand(() => commandFired = true);
+
+        await Microsoft.Maui.ApplicationModel.MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            commandProperty!.SetValue(chart, probe);
+
+            var args = new LiveChartsCore.Native.Events.PressedEventArgs(
+                new LiveChartsCore.Drawing.LvcPoint(0, 0),
+                isSecondaryPress: false,
+                isSyntheticRelease: true,
+                originalEvent: chart);
+
+            _ = onReleased!.Invoke(chart, [chart, args]);
+        });
+
+        Assert.False(
+            commandFired,
+            "ReleasedCommand must not be invoked when args.IsSyntheticRelease is set; capture-loss is not a real user release and the public command's contract is 'real user release' (#1576).");
+    }
+#endif
+
+#if WPF_UI_TESTING || AVALONIA_UI_TESTING || WINUI_UI_TESTING || UNO_UI_TESTING || MAUI_UI_TESTING
     private static Type? WalkBaseTypes(Type? start, string name)
     {
         for (var t = start; t is not null; t = t.BaseType)
@@ -469,7 +524,7 @@ public class PointerCaptureLostTests
     }
 #endif
 
-#if WPF_UI_TESTING || WINUI_UI_TESTING || UNO_UI_TESTING
+#if WPF_UI_TESTING || WINUI_UI_TESTING || UNO_UI_TESTING || MAUI_UI_TESTING
     private sealed class ProbeCommand(System.Action onExecute) : System.Windows.Input.ICommand
     {
         public event System.EventHandler? CanExecuteChanged { add { } remove { } }
