@@ -96,6 +96,80 @@ public sealed class SpecialCasesTests
         chart.AssertSnapshotMatches($"{nameof(SpecialCasesTests)}_{nameof(Issue1847_NonFiniteValuesViaCustomMapper)}_4");
     }
 
+    // Companion to Issue1847_NonFiniteValuesViaCustomMapper for the
+    // IChartEntity recipe. The same sentinel-coordinate-plus-formatter policy
+    // is applied inside an entity's OnCoordinateChanged instead of through
+    // Mapping. Mutating Value in place exercises the entity-reuse path - the
+    // same SafeValue instance persists across frames, which is the scenario
+    // from the original bug report (#1847).
+    [TestMethod]
+    public void Issue1847_NonFiniteValuesViaCustomEntity()
+    {
+        static string Format(ChartPoint<SafeValue, RoundedRectangleGeometry, LabelGeometry> p) =>
+            double.IsPositiveInfinity(p.Model!.Value) ? "+∞"
+            : double.IsNegativeInfinity(p.Model!.Value) ? "-∞"
+            : double.IsNaN(p.Model!.Value) ? "NaN"
+            : p.Model!.Value.ToString();
+
+        var values = new ObservableCollection<SafeValue>
+        {
+            new(1), new(2), new(3), new(4), new(5)
+        };
+
+        var chart = new SKCartesianChart
+        {
+            Series = [
+                new ColumnSeries<SafeValue> { Values = values, YToolTipLabelFormatter = Format }
+            ],
+            Width = 600,
+            Height = 600
+        };
+
+        chart.PointerAt(180, 300);
+
+        chart.AssertSnapshotMatches($"{nameof(SpecialCasesTests)}_{nameof(Issue1847_NonFiniteValuesViaCustomEntity)}_0");
+
+        values[1].Value = double.PositiveInfinity;
+        chart.AssertSnapshotMatches($"{nameof(SpecialCasesTests)}_{nameof(Issue1847_NonFiniteValuesViaCustomEntity)}_1");
+
+        values[1].Value = double.NaN;
+        chart.AssertSnapshotMatches($"{nameof(SpecialCasesTests)}_{nameof(Issue1847_NonFiniteValuesViaCustomEntity)}_2");
+
+        values[1].Value = double.NegativeInfinity;
+        chart.AssertSnapshotMatches($"{nameof(SpecialCasesTests)}_{nameof(Issue1847_NonFiniteValuesViaCustomEntity)}_3");
+
+        values[1].Value = 2;
+        chart.AssertSnapshotMatches($"{nameof(SpecialCasesTests)}_{nameof(Issue1847_NonFiniteValuesViaCustomEntity)}_4");
+    }
+
+    // Test-only IChartEntity that mirrors the documented "Policy B" recipe:
+    // non-finite values render as a zero-height stub so the column's hover
+    // area survives, finite values render normally. The series-level
+    // YToolTipLabelFormatter inspects Value to print the original sign.
+    private class SafeValue : IChartEntity, INotifyPropertyChanged
+    {
+        public SafeValue() => MetaData = new ChartEntityMetaData(OnCoordinateChanged);
+        public SafeValue(double value) : this() => Value = value;
+
+        public double Value { get; set { field = value; OnPropertyChanged(); } }
+
+        public ChartEntityMetaData? MetaData { get; set; }
+        public Coordinate Coordinate { get; set; } = Coordinate.Empty;
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            if (MetaData is not null) OnCoordinateChanged(MetaData.EntityIndex);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        private void OnCoordinateChanged(int index) =>
+            Coordinate = double.IsNaN(Value) || double.IsInfinity(Value)
+                ? new Coordinate(index, 0)
+                : new Coordinate(index, Value);
+    }
+
     [TestMethod]
     public void CustomPoints()
     {
