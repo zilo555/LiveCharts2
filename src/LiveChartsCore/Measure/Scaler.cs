@@ -109,7 +109,7 @@ public class Scaler
     /// </summary>
     /// <param name="value">The value in chart values.</param>
     /// <returns></returns>
-    public float ToPixels(double value) =>
+    public virtual float ToPixels(double value) =>
         unchecked((float)(_minPx + (value - _minVal) * _m));
 
     /// <summary>
@@ -117,7 +117,7 @@ public class Scaler
     /// </summary>
     /// <param name="pixels">The value in pixels.</param>
     /// <returns></returns>
-    public double ToChartValues(double pixels) =>
+    public virtual double ToChartValues(double pixels) =>
         _minVal + (pixels - _minPx) * _mInv;
 
     /// <summary>
@@ -125,7 +125,7 @@ public class Scaler
     /// </summary>
     /// <param name="value">The value.</param>
     /// <returns></returns>
-    public float MeasureInPixels(double value)
+    public virtual float MeasureInPixels(double value)
     {
         unchecked
         {

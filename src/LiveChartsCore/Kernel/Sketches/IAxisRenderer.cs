@@ -20,24 +20,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-namespace LiveChartsCore.Kernel.Providers;
+using LiveChartsCore.Drawing;
+
+namespace LiveChartsCore.Kernel.Sketches;
 
 /// <summary>
-/// A filled band over the axis range, expressed in axis units; drawn by the axis as a
-/// rectangle spanning the draw margin on the other dimension (see
-/// <c>ICartesianAxis.AlternatingBandsPaint</c>).
+/// Owns the measure and draw of a cartesian axis. Assign one to <see cref="ICartesianAxis.Renderer"/>
+/// to fully replace the built-in axis rendering — for example to draw multi-tier labels, dividers or
+/// other custom gutter content — without needing a UI-framework-specific axis type.
 /// </summary>
-/// <param name="start">The band start, in axis units.</param>
-/// <param name="end">The band end, in axis units.</param>
-internal readonly struct AxisBand(double start, double end)
+public interface IAxisRenderer
 {
     /// <summary>
-    /// Gets the band start, in axis units.
+    /// Returns the size the axis should reserve for its content. Called in place of the built-in
+    /// measure while a renderer is set.
     /// </summary>
-    public double Start { get; } = start;
+    /// <param name="axis">The axis being measured.</param>
+    /// <param name="chart">The chart.</param>
+    LvcSize Measure(ICartesianAxis axis, Chart chart);
 
     /// <summary>
-    /// Gets the band end, in axis units.
+    /// Draws the axis. Called in place of the built-in draw while a renderer is set.
     /// </summary>
-    public double End { get; } = end;
+    /// <param name="axis">The axis being drawn.</param>
+    /// <param name="chart">The chart.</param>
+    void Draw(ICartesianAxis axis, Chart chart);
 }

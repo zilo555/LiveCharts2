@@ -78,23 +78,6 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
     internal DoubleMotionProperty? _animatableMin;
     internal DoubleMotionProperty? _animatableMax;
 
-    // Per-measure grouping state, supplied by the axis' own TryGroupSeparators (a built-in
-    // grouping like DateTimeAxis.GroupTimeUnits) or by the provider's IAxisRenderOverride.
-    // Computed once per visible range and cached by it, so re-measuring at the same zoom does not
-    // re-consult — and so we never mutate the axis' own CustomSeparators/Labeler, which
-    // would notify a property change every frame and loop the measure forever.
-    private IEnumerable<double>? _groupedSeparators;
-    private Func<double, string>? _groupedLabeler;
-    private (double Min, double Max)? _groupedSignature;
-
-    // The alternating-band rectangles (see AlternatingBandsPaint), keyed per chart by the band
-    // start value so zoom/pan moves the same instance instead of recreating it.
-    private readonly Dictionary<Chart, Dictionary<string, BoundedDrawnGeometry>> _activeBands = [];
-
-    // Whether CreateBandGeometry supplies a geometry — probed once (constant per axis type);
-    // a platform without one has the bands disabled regardless of the paint.
-    private bool? _createsBandGeometries;
-
     // Shared by every geometry this axis animates. Mutated in-place on each Invalidate so
     // AnimationsSpeed/EasingFunction changes reach already-created visuals — every MotionProperty
     // holds a reference to this same instance, not a copy.
@@ -252,13 +235,6 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
         set => SetPaintProperty(ref field, value, PaintStyle.Stroke);
     }
 
-    /// <inheritdoc cref="ICartesianAxis.AlternatingBandsPaint"/>
-    public Paint? AlternatingBandsPaint
-    {
-        get;
-        set => SetPaintProperty(ref field, value);
-    }
-
     /// <inheritdoc cref="ICartesianAxis.SubseparatorsCount"/>
     public int SubseparatorsCount { get; set => SetProperty(ref field, value); } = 3;
 
@@ -346,7 +322,9 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
     /// <inheritdoc cref="ICartesianAxis.MeasureStarted"/>
     public event Action<Chart, ICartesianAxis>? MeasureStarted;
 
-    /// <inheritdoc cref="ChartElement.Invalidate(Chart)"/>
+    /// <inheritdoc cref="ICartesianAxis.Renderer"/>
+    public IAxisRenderer? Renderer { get; set => SetProperty(ref field, value); }
+
     // ---- template method ----------------------------------------------------
 
     /// <summary>
@@ -356,8 +334,6 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
     /// </summary>
     protected virtual AxisMeasureContext BeginMeasure(CartesianChartEngine chart)
     {
-        EnsureGrouped(chart);
-
         var animation = GetAnimation(chart);
 
         var controlSize = chart.ControlSize;
@@ -743,6 +719,8 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
     /// <inheritdoc cref="ChartElement.Invalidate(Chart)"/>
     public override void Invalidate(Chart chart)
     {
+        if (Renderer is not null) { Renderer.Draw(this, chart); return; }
+
         var cartesianChart = (CartesianChartEngine)chart;
         var ctx = BeginMeasure(cartesianChart);
 
@@ -764,186 +742,11 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
         EnsureTicksPath(in ctx);
 
         var measured = new HashSet<AxisVisualSeprator>();
-        var separatorValues = new List<double>();
 
         foreach (var i in EnumerateSeparators(ctx.Start, ctx.Max, ctx.Step))
-        {
-            separatorValues.Add(i);
             MeasureSeparatorAtValue(i, separators, measured, in ctx);
-        }
 
         CollectOrphanSeparators(separators, measured, in ctx);
-        EnsureBands(in ctx, separatorValues);
-    }
-
-    // Draws the alternating (zebra) bands as rectangles in the draw margin, behind the series:
-    // every other gap between the separators the axis is drawing (whatever produced them —
-    // grouped, custom or evenly-stepped) is filled with AlternatingBandsPaint. The axis owns the
-    // geometry lifecycle — bands are keyed by their start value so zoom/pan animates the same
-    // instance, new bands fade in and bands leaving the range animate out.
-    private void EnsureBands(in AxisMeasureContext ctx, IReadOnlyList<double> separatorValues)
-    {
-        var chart = ctx.Chart;
-        var bandsPaint = AlternatingBandsPaint;
-
-        var bands = bandsPaint is null
-            ? null
-            : ComputeAlternatingBands(ctx.Min, ctx.Max, separatorValues);
-
-        if (bands is { Count: > 0 })
-        {
-            // A platform that supplies no band geometry cannot draw bands — same as having
-            // none, INCLUDING sweeping out any active ones, so the disabled state is always
-            // consistent. Probed once: the factory is constant for the axis type.
-            _createsBandGeometries ??= CreateBandGeometry() is not null;
-            if (_createsBandGeometries == false) bands = null;
-        }
-
-        var hasActive = _activeBands.TryGetValue(chart, out var active);
-
-        if (bandsPaint is null || bands is not { Count: > 0 })
-        {
-            if (!hasActive) return;
-            foreach (var band in active!.Values)
-                SetUpdateMode(band, UpdateMode.UpdateAndRemove);
-            _ = _activeBands.Remove(chart);
-            return;
-        }
-
-        if (!hasActive)
-        {
-            active = [];
-            _activeBands[chart] = active;
-        }
-
-        if (Math.Abs(bandsPaint.ZIndex) < double.Epsilon) bandsPaint.ZIndex = PaintConstants.AxisBandsPaintZIndex;
-        chart.Canvas.AddDrawableTask(bandsPaint, zone: CanvasZone.DrawMargin);
-
-        var measuredBands = new HashSet<string>();
-
-        foreach (var band in bands)
-        {
-            var key = band.Start.ToString("R");
-            if (!measuredBands.Add(key)) continue;
-
-            // Stamp position with the current scaler, target with the next one — same source →
-            // target convention the separators use, so bands slide along with them on zoom/pan.
-            GetBandRect(in ctx, band, ctx.ActualScale, out var xc, out var yc, out var wc, out var hc);
-            GetBandRect(in ctx, band, ctx.Scale, out var x, out var y, out var w, out var h);
-
-            if (!active!.TryGetValue(key, out var rect))
-            {
-                // Non-null by the probe above; a pathological override that alternates null
-                // just skips this band — no state was touched for it.
-                if (CreateBandGeometry() is not { } newRect) continue;
-                rect = newRect;
-                rect.X = xc; rect.Y = yc; rect.Width = wc; rect.Height = hc;
-                rect.Animate(GetAnimation(chart));
-                SetUpdateMode(rect, UpdateMode.UpdateAndComplete);
-                active[key] = rect;
-            }
-
-            bandsPaint.AddGeometryToPaintTask(chart.Canvas, rect);
-
-            rect.X = x; rect.Y = y; rect.Width = w; rect.Height = h;
-            rect.RemoveOnCompleted = false;
-            SetUpdateMode(rect, UpdateMode.Update);
-        }
-
-        // Sweep bands whose range is gone; they animate out and detach on completion.
-        foreach (var pair in active!.ToArray().Where(pair => !measuredBands.Contains(pair.Key)))
-        {
-            SetUpdateMode(pair.Value, UpdateMode.UpdateAndRemove);
-            _ = active.Remove(pair.Key);
-        }
-    }
-
-    // The zebra computation: cell edges are the separators plus the partial cells at the range
-    // edges (grouped separators are exact boundaries inside [min, max], so without these the
-    // first and last partial month/day/... would never be banded; the draw margin clips
-    // overflow). Every other cell is banded, with parity anchored to a stable ordinal of the
-    // cell START (see GetBandParityAnchor) — anchoring to the list index would swap every band
-    // color each time a separator scrolls in or out on pan. Internal for the unit tests.
-    internal List<AxisBand>? ComputeAlternatingBands(double min, double max, IReadOnlyList<double> separators)
-    {
-        if (separators.Count < 2) return null;
-
-        var edges = new List<double>(separators.Count + 2);
-        var anchorIndex = 0; // index in edges of the cell that starts at separators[0]
-
-        if (min < separators[0])
-        {
-            edges.Add(min);
-            anchorIndex = 1;
-        }
-        foreach (var s in separators)
-            if (edges.Count == 0 || s > edges[edges.Count - 1])
-                edges.Add(s);
-        if (max > edges[edges.Count - 1]) edges.Add(max);
-
-        if (edges.Count < 2) return null;
-
-        var anchor = GetBandParityAnchor(min, max, separators);
-
-        var result = new List<AxisBand>(edges.Count / 2 + 1);
-        for (var i = 0; i < edges.Count - 1; i++)
-        {
-            var ordinal = anchor + (i - anchorIndex);
-            if ((ordinal & 1L) != 0) continue;
-            result.Add(new AxisBand(edges[i], edges[i + 1]));
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Returns a stable ordinal for the cell that starts at the first separator, used to anchor
-    /// the alternating-bands parity across pan. The default assumes evenly-stepped separators
-    /// (the step quotient is the cell ordinal — stable while the tick step doesn't change; a
-    /// re-tier legitimately reshuffles the bands). Axes that group their separators (e.g. a
-    /// <c>DateTimeAxis</c> grouping time units) override this with an exact cell ordinal.
-    /// </summary>
-    /// <param name="min">The effective visible minimum, in axis units.</param>
-    /// <param name="max">The effective visible maximum, in axis units.</param>
-    /// <param name="separators">The separator values the axis is drawing, ordered ascending.</param>
-    protected virtual long GetBandParityAnchor(double min, double max, IReadOnlyList<double> separators)
-    {
-        // User CustomSeparators with uneven gaps get a stable (per value) though approximate
-        // ordinal — bands never flicker on pan, but two adjacent cells can occasionally share
-        // a color.
-        var step = separators[1] - separators[0];
-        return step > 0 ? (long)Math.Round(separators[0] / step) : 0;
-    }
-
-    /// <summary>
-    /// Creates a new rectangle geometry for one alternating band; called once per band that
-    /// enters the visible range (the axis caches and animates the instances). The platform
-    /// axis supplies the concrete geometry; returning null disables the bands.
-    /// </summary>
-    protected virtual BoundedDrawnGeometry? CreateBandGeometry() => null;
-
-    private static void GetBandRect(
-        in AxisMeasureContext ctx, AxisBand band, Scaler scaler,
-        out float x, out float y, out float w, out float h)
-    {
-        if (ctx.Orientation == AxisOrientation.X)
-        {
-            var x0 = scaler.ToPixels(band.Start);
-            var x1 = scaler.ToPixels(band.End);
-            x = Math.Min(x0, x1);
-            w = Math.Abs(x1 - x0);
-            y = ctx.TopY;
-            h = ctx.BottomY - ctx.TopY;
-        }
-        else
-        {
-            var y0 = scaler.ToPixels(band.Start);
-            var y1 = scaler.ToPixels(band.End);
-            y = Math.Min(y0, y1);
-            h = Math.Abs(y1 - y0);
-            x = ctx.LeftX;
-            w = ctx.RightX - ctx.LeftX;
-        }
     }
 
     /// <inheritdoc cref="ICartesianAxis.InvalidateCrosshair(Chart, LvcPoint)"/>
@@ -1090,9 +893,7 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
 
     private IEnumerable<double> EnumerateSeparators(double start, double end, double step)
     {
-        // Grouped separators (from an IAxisRenderOverride) take priority, then the user's
-        // CustomSeparators, then the evenly-stepped default.
-        var custom = _groupedSeparators ?? CustomSeparators;
+        var custom = CustomSeparators;
         if (custom is not null)
         {
             foreach (var s in custom)
@@ -1159,10 +960,10 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
     /// <inheritdoc cref="IPlane.GetPossibleSize(Chart)"/>
     public virtual LvcSize GetPossibleSize(Chart chart)
     {
+        if (Renderer is not null) return Renderer.Measure(this, chart);
+
         if (_dataBounds is null) throw new Exception("DataBounds not found");
         if (LabelsPaint is null) return new LvcSize(0f, 0f);
-
-        EnsureGrouped(chart);
 
         var ts = (float)TextSize;
         var labeler = GetActualLabeler();
@@ -1316,6 +1117,15 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
         _logBase = newBase;
     }
 
+    /// <inheritdoc cref="ICartesianAxis.ScalerProvider"/>
+    public IScalerProvider? ScalerProvider { get; set => SetProperty(ref field, value); }
+
+    /// <inheritdoc cref="ICartesianAxis.GetScaler(LvcPoint, LvcSize, Bounds?)"/>
+    public virtual Scaler GetScaler(LvcPoint drawMarginLocation, LvcSize drawMarginSize, Bounds? bounds = null) =>
+        ScalerProvider is { } provider
+            ? provider.GetScaler(this, drawMarginLocation, drawMarginSize, bounds)
+            : new(drawMarginLocation, drawMarginSize, this, bounds);
+
     /// <summary>
     /// Deletes the specified chart.
     /// </summary>
@@ -1332,7 +1142,6 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
         }
 
         _ = activeSeparators.Remove(chart);
-        _ = _activeBands.Remove(chart);
     }
 
     /// <inheritdoc cref="IChartElement.RemoveFromUI(Chart)"/>
@@ -1340,7 +1149,6 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
     {
         base.RemoveFromUI(chart);
         _ = activeSeparators.Remove(chart);
-        _ = _activeBands.Remove(chart);
     }
 
     /// <summary>
@@ -1356,90 +1164,10 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
 
     /// <inheritdoc cref="ChartElement.GetPaintTasks"/>
     protected internal override Paint?[] GetPaintTasks() =>
-        [SeparatorsPaint, LabelsPaint, NamePaint, ZeroPaint, TicksPaint, SubticksPaint, SubseparatorsPaint, AlternatingBandsPaint];
-
-    /// <summary>
-    /// Gets a value indicating whether this axis may group its separators (see
-    /// <see cref="TryGroupSeparators"/>) — a cheap pre-check evaluated every measure, so axes
-    /// without grouping skip the grouping pipeline entirely. Default is false.
-    /// </summary>
-    protected virtual bool GroupsSeparators => false;
-
-    /// <summary>
-    /// Supplies grouped separators + labeler for the current visible range — e.g. a
-    /// <c>DateTimeAxis</c> grouping its time units into adaptive multi-level labels. Called
-    /// while measuring (cached by visible range), so it must not mutate the axis: a property
-    /// change would re-trigger the measure. Return false to lay the axis out as usual.
-    /// </summary>
-    /// <param name="chart">The chart being measured.</param>
-    /// <param name="min">The effective visible minimum, in axis units.</param>
-    /// <param name="max">The effective visible maximum, in axis units.</param>
-    /// <param name="separators">The grouped separator values, ascending, or null.</param>
-    /// <param name="labeler">The labeler for the grouped separators, or null.</param>
-    protected virtual bool TryGroupSeparators(
-        Chart chart, double min, double max,
-        out IEnumerable<double>? separators, out Func<double, string>? labeler)
-    {
-        separators = null;
-        labeler = null;
-        return false;
-    }
-
-    // Resolves the grouped separators + labeler for the current visible range: the axis' own
-    // TryGroupSeparators (a built-in grouping like DateTimeAxis.GroupTimeUnits) first, then the
-    // provider's IAxisRenderOverride (an engine extension), else the axis lays itself out as
-    // usual. Cached by (min, max) so the same zoom does not re-consult; the results are read
-    // transiently by GetActualLabeler / EnumerateSeparators (the axis' own CustomSeparators / Labeler
-    // are never written). Called at the start of both size and draw passes so two-line grouped labels
-    // reserve the right margin AND draw consistently.
-    private void EnsureGrouped(Chart chart)
-    {
-        var axisOverride = LiveCharts.DefaultSettings.GetProvider().GetAxisRenderOverride(this);
-        if (!GroupsSeparators && axisOverride is null)
-        {
-            if (_groupedSeparators is not null || _groupedLabeler is not null)
-                _possibleMaxLabelsSize = null; // labels are no longer grouped → recompute the size
-            _groupedSeparators = null;
-            _groupedLabeler = null;
-            _groupedSignature = null;
-            return;
-        }
-
-        var max = MaxLimit ?? _visibleDataBounds.Max;
-        var min = MinLimit ?? _visibleDataBounds.Min;
-        AxisLimit.ValidateLimits(ref min, ref max, MinStep);
-
-        // Cache by the visible range: re-consulting (and re-allocating separators) is pointless while
-        // the zoom hasn't moved. .Equals avoids the float == operator while keeping an exact cache key
-        // (a miss just recomputes — no correctness impact).
-        if (_groupedSignature is { } sig && sig.Min.Equals(min) && sig.Max.Equals(max)) return;
-        _groupedSignature = (min, max);
-
-        // The range changed, so the grouped labels (and their two-line height) change too: drop the
-        // cached label size so it is recomputed with the new labeler.
-        _possibleMaxLabelsSize = null;
-
-        if (TryGroupSeparators(chart, min, max, out var separators, out var labeler) ||
-            (axisOverride?.TryGroup(this, chart, min, max, out separators, out labeler) ?? false))
-        {
-            // Materialize: the separators are re-enumerated in both the size and draw passes, so a
-            // single-use iterator from the grouping would yield nothing the second time.
-            _groupedSeparators = separators is null
-                ? null
-                : separators as IReadOnlyList<double> ?? [.. separators];
-            _groupedLabeler = labeler;
-        }
-        else
-        {
-            _groupedSeparators = null;
-            _groupedLabeler = null;
-        }
-    }
+        [SeparatorsPaint, LabelsPaint, NamePaint, ZeroPaint, TicksPaint, SubticksPaint, SubseparatorsPaint];
 
     private Func<double, string> GetActualLabeler()
     {
-        if (_groupedLabeler is not null) return _groupedLabeler;
-
         var labeler = Labeler;
 
         if (Labels is not null)
@@ -1810,10 +1538,7 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
         var actualRotatation = r;
         const double toRadians = Math.PI / 180;
 
-        // Grouped labels are multi-line blocks centered on their tick (fine unit on one line,
-        // coarse context on another); left-aligned lines would shift the narrow line toward the
-        // previous tick. Reset when grouping turns off so the default layout returns.
-        label.LinesAlignment = _groupedLabeler is not null ? Align.Middle : Align.Start;
+        label.LinesAlignment = Align.Start;
 
         if (_orientation == AxisOrientation.Y)
         {

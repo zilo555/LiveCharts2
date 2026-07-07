@@ -199,8 +199,8 @@ public static class LiveChartsSkiaSharp
 
                 var drawLocation = cartesianChart.Core.DrawMarginLocation;
                 var drawMarginSize = cartesianChart.Core.DrawMarginSize;
-                var secondaryScale = new Scaler(drawLocation, drawMarginSize, primaryAxis);
-                var primaryScale = new Scaler(drawLocation, drawMarginSize, secondaryAxis);
+                var secondaryScale = primaryAxis.GetScaler(drawLocation, drawMarginSize);
+                var primaryScale = secondaryAxis.GetScaler(drawLocation, drawMarginSize);
 
                 var coordinate = target.Coordinate;
 
@@ -215,8 +215,8 @@ public static class LiveChartsSkiaSharp
                 var drawLocation = cartesianChart.Core.DrawMarginLocation;
                 var drawMarginSize = cartesianChart.Core.DrawMarginSize;
 
-                var secondaryScale = new Scaler(drawLocation, drawMarginSize, secondaryAxis);
-                var primaryScale = new Scaler(drawLocation, drawMarginSize, primaryAxis);
+                var secondaryScale = secondaryAxis.GetScaler(drawLocation, drawMarginSize);
+                var primaryScale = primaryAxis.GetScaler(drawLocation, drawMarginSize);
 
                 var coordinate = target.Coordinate;
 

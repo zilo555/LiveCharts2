@@ -1,4 +1,4 @@
-﻿// The MIT License(MIT)
+// The MIT License(MIT)
 //
 // Copyright(c) 2021 Alberto Rodriguez Orozco & LiveCharts Contributors
 //
@@ -20,16 +20,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using LiveChartsCore.Kernel.Sketches;
-using LiveChartsCore.SkiaSharpView.Drawing.Geometries;
+using LiveChartsCore.Drawing;
+using LiveChartsCore.Measure;
 
-namespace LiveChartsCore.SkiaSharpView;
+namespace LiveChartsCore.Kernel.Sketches;
 
-/// <inheritdoc cref="ICartesianAxis" />
-public class Axis : CoreAxis<LabelGeometry, LineGeometry>
+/// <summary>
+/// Produces the <see cref="Scaler"/> an axis uses to map between data values and pixels. Assign one
+/// to <see cref="ICartesianAxis.ScalerProvider"/> to plug in a custom (for example non-linear)
+/// coordinate mapping without a UI-framework-specific axis type; every scaler the engine builds for
+/// the axis — series, gridlines, hit-testing and zoom alike — flows through it.
+/// </summary>
+public interface IScalerProvider
 {
-    static Axis()
-    {
-        LiveChartsSkiaSharp.EnsureInitialized();
-    }
+    /// <summary>
+    /// Builds a scaler for <paramref name="axis"/>.
+    /// </summary>
+    /// <param name="axis">The axis to scale.</param>
+    /// <param name="drawMarginLocation">The draw margin location.</param>
+    /// <param name="drawMarginSize">The draw margin size.</param>
+    /// <param name="bounds">Optional bounds to scale against; when null the axis' own limits are used.</param>
+    Scaler GetScaler(ICartesianAxis axis, LvcPoint drawMarginLocation, LvcSize drawMarginSize, Bounds? bounds);
 }

@@ -153,16 +153,6 @@ public interface ICartesianAxis : IPlane, INotifyPropertyChanged
     Paint? SubseparatorsPaint { get; set; }
 
     /// <summary>
-    /// Gets or sets the paint that fills the axis' alternating (zebra) bands: every other gap
-    /// between the axis separators is filled with a rectangle behind the series — for a Y axis
-    /// a draw-margin-wide stripe one step tall, for an X axis a draw-margin-tall stripe one
-    /// step wide. The bands follow the axis' active separators, so on a grouping axis (e.g. a
-    /// DateTimeAxis with GroupTimeUnits) they re-tier with the zoom, animating through the
-    /// transition. Null (the default) draws no bands.
-    /// </summary>
-    Paint? AlternatingBandsPaint { get; set; }
-
-    /// <summary>
     /// Gets or sets the number of subseparators to draw.
     /// </summary>
     int SubseparatorsCount { get; set; }
@@ -260,6 +250,32 @@ public interface ICartesianAxis : IPlane, INotifyPropertyChanged
     /// <param name="notify">if set to <c>true</c> notify the changes.</param>
     /// <param name="propagateShared">if set to <c>true</c> propagate the changes to the shared axes.</param>
     void SetLimits(double min, double max, double step = -1, bool propagateShared = true, bool notify = true);
+
+    /// <summary>
+    /// Builds a <see cref="Scaler"/> that maps between this axis' data values and pixels. Override in a
+    /// derived axis to provide a custom (for example, non-linear) coordinate mapping; every scaler the
+    /// engine builds for this axis — target, animated, zoom/pan and section scalers — flows through here.
+    /// </summary>
+    /// <param name="drawMarginLocation">The draw margin location.</param>
+    /// <param name="drawMarginSize">The draw margin size.</param>
+    /// <param name="bounds">Optional bounds to scale against; when null the axis' own limits are used.</param>
+    /// <returns>The scaler.</returns>
+    Scaler GetScaler(LvcPoint drawMarginLocation, LvcSize drawMarginSize, Bounds? bounds = null);
+
+    /// <summary>
+    /// Gets or sets a renderer that fully owns this axis' measure and draw. When null (the default)
+    /// the built-in rendering is used; when set it replaces the axis' appearance — enabling custom
+    /// looks (multi-tier labels, dividers, custom gutter content) without a UI-framework-specific
+    /// axis type.
+    /// </summary>
+    IAxisRenderer? Renderer { get; set; }
+
+    /// <summary>
+    /// Gets or sets a provider that builds this axis' coordinate <see cref="Scaler"/>. When null (the
+    /// default) the built-in linear scaler is used; when set it supplies a custom (for example
+    /// non-linear) mapping used consistently by series, gridlines, hit-testing and zoom.
+    /// </summary>
+    IScalerProvider? ScalerProvider { get; set; }
 
     /// <summary>
     /// Invalidates the crosshair visual.

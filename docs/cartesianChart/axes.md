@@ -597,45 +597,6 @@ public Axis[] YAxes { get; set; } =
 
 ![image](https://raw.githubusercontent.com/beto-rodriguez/LiveCharts2/master/docs/samples/axes/customSeparatorsInterval/result.png)
 
-## AlternatingBandsPaint property
-
-Fills every other gap between the axis separators with a rectangle behind the series — alternating
-(zebra) bands. For a `Y` axis each band is a draw-margin-wide stripe one step tall, for an `X` axis a
-draw-margin-tall stripe one step wide. The bands follow the axis' active separators (calculated,
-custom or grouped), so on a `DateTimeAxis` with `GroupTimeUnits` they re-tier with the zoom,
-animating through the transition. Panning never swaps the band colors: parity is anchored to the
-cell value, not to its on-screen position.
-
-```csharp
-public Axis[] YAxes { get; set; } =
-    {
-        new Axis
-        {
-            // a subtle, semi-transparent fill works best — the bands
-            // draw behind the series, the separators and the labels
-            AlternatingBandsPaint = new SolidColorPaint(SKColors.Black.WithAlpha(16))
-        }
-    };
-```
-
-## GroupTimeUnits property (DateTimeAxis)
-
-When a `DateTimeAxis` sets `GroupTimeUnits` to `true`, the axis groups its time units into adaptive,
-multi-level labels: a fine unit on the first line (seconds, minutes, hours, days, months or years —
-whichever fits the visible range) and a coarser context on the second line, shown where the fine tick
-opens a new coarse bucket (the year at each January, the date at each midnight, and so on). As you
-zoom, the visible span changes and the tier re-adapts.
-
-```csharp
-public Axis[] XAxes { get; set; } =
-    {
-        new DateTimeAxis(TimeSpan.FromDays(1), date => date.ToString("MMM dd"))
-        {
-            GroupTimeUnits = true
-        }
-    };
-```
-
 ## Labels Density
 
 Separators are calculated automatically when the `CustomSeparators` and `Labels` properties are not set, the library decides
