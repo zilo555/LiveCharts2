@@ -108,6 +108,36 @@ public class AxisRendererTests
     }
 
     [TestMethod]
+    public void Removing_the_axis_clears_the_renderer_that_actually_drew()
+    {
+        // Renderer is reassigned AFTER the last draw but BEFORE the next Invalidate, then the axis is removed.
+        // The Invalidate sweep never runs, so RemoveFromUI must clear the renderer that actually painted the
+        // last frame (first) — not just the current Renderer — or first's visuals linger on the canvas.
+        var first = new CountingRenderer();
+        var second = new CountingRenderer();
+        var axis = new Axis { Renderer = first };
+
+        var chart = new SKCartesianChart
+        {
+            Width = 400,
+            Height = 300,
+            Series = [new LineSeries<double> { Values = [1, 2, 3] }],
+            XAxes = [axis],
+            YAxes = [new Axis()],
+        };
+
+        _ = chart.GetImage();
+        Assert.IsTrue(first.DrawCalls > 0, "first renderer should have drawn the last frame");
+
+        // reassign without re-rendering, then remove the axis directly
+        axis.Renderer = second;
+        var core = (CartesianChartEngine)chart.CoreChart;
+        axis.RemoveFromUI(core);
+
+        Assert.AreEqual(1, first.ClearCalls, "the renderer that actually drew must be cleared when the axis is removed");
+    }
+
+    [TestMethod]
     public void Swapping_the_renderer_clears_the_previous_one()
     {
         var first = new CountingRenderer();
