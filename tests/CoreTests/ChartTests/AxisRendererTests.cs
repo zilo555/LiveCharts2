@@ -1,5 +1,7 @@
+using System;
 using LiveChartsCore;
 using LiveChartsCore.Drawing;
+using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Measure;
 using LiveChartsCore.SkiaSharpView;
@@ -150,5 +152,89 @@ public class AxisRendererTests
         _ = xAxis.GetScaler(new LvcPoint(0, 0), new LvcSize(100, 100), bounds);
 
         Assert.AreSame(bounds, provider.LastBounds, "the optional Bounds argument must be forwarded to the provider untouched");
+    }
+
+    // A non-linear (here: logarithmic) X scaler: ToPixels is affine in a WINDOW-INDEPENDENT transform
+    // (log of the value), not in the value itself — the class the pixel-space pivot zoom is built for.
+    // IsLinear says so; ToPixels/ToChartValues are exact inverses so a value under a pixel survives a zoom.
+    private sealed class LogScaler : Scaler
+    {
+        private readonly double _leftPx, _widthPx, _logMin, _logMax;
+
+        private static double Log(double v) => Math.Log(Math.Max(1e-9, v)); // padding can push the view <= 0
+
+        public LogScaler(LvcPoint loc, LvcSize size, ICartesianAxis axis, Bounds? bounds)
+            : base(loc, size, axis, bounds)
+        {
+            _leftPx = loc.X;
+            _widthPx = size.Width;
+            _logMin = Log(bounds?.Min ?? axis.MinLimit ?? axis.VisibleDataBounds.Min);
+            _logMax = Log(bounds?.Max ?? axis.MaxLimit ?? axis.VisibleDataBounds.Max);
+        }
+
+        public override bool IsLinear => false;
+
+        public override float ToPixels(double value) =>
+            (float)(_leftPx + _widthPx * (Log(value) - _logMin) / (_logMax - _logMin));
+
+        public override double ToChartValues(double pixels) =>
+            Math.Exp(_logMin + (pixels - _leftPx) / _widthPx * (_logMax - _logMin));
+    }
+
+    private sealed class LogScalerProvider : IScalerProvider
+    {
+        public Scaler GetScaler(ICartesianAxis axis, LvcPoint location, LvcSize size, Bounds? bounds) =>
+            new LogScaler(location, size, axis, bounds);
+    }
+
+    [TestMethod]
+    public void Default_scaler_is_linear()
+    {
+        // The base scaler advertises IsLinear so the pivot zoom keeps its fast, exact value-space path.
+        var axis = new Axis();
+        var chart = new SKCartesianChart
+        {
+            Width = 400,
+            Height = 300,
+            Series = [new LineSeries<double> { Values = [1, 2, 3] }],
+            XAxes = [axis],
+            YAxes = [new Axis()],
+        };
+        _ = chart.GetImage();
+
+        Assert.IsTrue(((ICartesianAxis)axis).GetScaler(new LvcPoint(0, 0), new LvcSize(100, 100)).IsLinear);
+    }
+
+    [TestMethod]
+    public void Zoom_keeps_the_pivot_under_the_pointer_for_a_non_linear_scaler()
+    {
+        // With a non-linear scaler, value ratios don't equal pixel ratios, so the pivot zoom must scale the
+        // window in pixel space. Repeated wheel-zoom at a fixed off-center pixel must keep the value that
+        // was under it pinned to that pixel (a value-space ratio would drift it away).
+        var xAxis = new Axis { ScalerProvider = new LogScalerProvider() };
+        var chart = new SKCartesianChart
+        {
+            Width = 800,
+            Height = 400,
+            Series = [new LineSeries<double> { Values = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] }],
+            XAxes = [xAxis],
+            YAxes = [new Axis()],
+        };
+        _ = chart.GetImage();
+
+        var engine = (CartesianChartEngine)chart.CoreChart;
+        var ax = (ICartesianAxis)xAxis;
+        var pivotPx = engine.DrawMarginLocation.X + engine.DrawMarginSize.Width * 0.35f;
+
+        var worst = 0f;
+        for (var step = 0; step < 5; step++)
+        {
+            var pivotValue = ax.GetNextScaler(engine).ToChartValues(pivotPx);
+            engine.Zoom(ZoomAndPanMode.X, new LvcPoint(pivotPx, 0), ZoomDirection.ZoomIn);
+            _ = chart.GetImage();
+            worst = Math.Max(worst, Math.Abs(ax.GetNextScaler(engine).ToPixels(pivotValue) - pivotPx));
+        }
+
+        Assert.IsTrue(worst < 1f, $"the pivot must stay under the pointer while zooming a non-linear axis; worst drift was {worst:0.00}px");
     }
 }
