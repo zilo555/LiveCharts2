@@ -1,6 +1,7 @@
 using LiveChartsCore;
 using LiveChartsCore.Drawing;
 using LiveChartsCore.Kernel.Sketches;
+using LiveChartsCore.Measure;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.SKCharts;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -78,5 +79,76 @@ public class AxisRendererTests
         axis.Renderer = null;
         _ = chart.GetImage();
         Assert.AreEqual(1, second.ClearCalls, "removing the renderer must clear it so the built-in axis draws alone");
+    }
+
+    // A custom IScalerProvider assigned to Axis.ScalerProvider must be the single source of the axis'
+    // coordinate mapping: every scaler the engine builds — series measure, gridlines, and the public
+    // ScaleDataToPixels/ScalePixelsToData paths — must flow through it, and the optional Bounds argument
+    // must be forwarded untouched.
+    private sealed class SpyScalerProvider : IScalerProvider
+    {
+        public int Calls;
+        public Bounds? LastBounds;
+
+        public Scaler GetScaler(ICartesianAxis axis, LvcPoint location, LvcSize size, Bounds? bounds)
+        {
+            Calls++;
+            LastBounds = bounds;
+            // deliberately squash the plot to half its size so the mapping is provably different from the
+            // default scaler — if a call site ignored us and used `new Scaler(...)`, the pixel a data value
+            // maps to would not match this provider's own scaler.
+            return new Scaler(location, new LvcSize(size.Width / 2f, size.Height / 2f), axis, bounds);
+        }
+    }
+
+    [TestMethod]
+    public void Custom_scaler_provider_is_consulted_end_to_end()
+    {
+        var provider = new SpyScalerProvider();
+        var xAxis = new Axis { ScalerProvider = provider };
+
+        var chart = new SKCartesianChart
+        {
+            Width = 400,
+            Height = 300,
+            Series = [new LineSeries<double> { Values = [1, 2, 3] }],
+            XAxes = [xAxis],
+            YAxes = [new Axis()],
+        };
+
+        _ = chart.GetImage();
+
+        // the provider was consulted while measuring the chart (series + gridlines build scalers).
+        Assert.IsTrue(provider.Calls > 0, "the custom scaler provider must be consulted during measure");
+
+        var engine = (CartesianChartEngine)chart.CoreChart;
+
+        // the public data<->pixel path must map through the provider's scaler, not a default `new Scaler(...)`.
+        var expected = provider.GetScaler(xAxis, engine.DrawMarginLocation, engine.DrawMarginSize, null).ToPixels(2d);
+        var actual = engine.ScaleDataToPixels(new LvcPointD(2d, 0d)).X;
+        Assert.AreEqual(expected, actual, 1e-4, "ScaleDataToPixels must map through the custom provider");
+    }
+
+    [TestMethod]
+    public void Custom_scaler_provider_receives_the_forwarded_bounds()
+    {
+        var provider = new SpyScalerProvider();
+        var xAxis = new Axis { ScalerProvider = provider };
+
+        var chart = new SKCartesianChart
+        {
+            Width = 400,
+            Height = 300,
+            Series = [new LineSeries<double> { Values = [1, 2, 3] }],
+            XAxes = [xAxis],
+            YAxes = [new Axis()],
+        };
+
+        _ = chart.GetImage(); // establishes the axis orientation so a scaler can be built
+
+        var bounds = new Bounds();
+        _ = xAxis.GetScaler(new LvcPoint(0, 0), new LvcSize(100, 100), bounds);
+
+        Assert.AreSame(bounds, provider.LastBounds, "the optional Bounds argument must be forwarded to the provider untouched");
     }
 }
