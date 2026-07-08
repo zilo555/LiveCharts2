@@ -105,11 +105,19 @@ public class Scaler
     }
 
     /// <summary>
+    /// Whether <see cref="ToPixels"/> is a plain affine (linear) function of the value. The default scaler
+    /// is; a custom scaler that maps values non-linearly (a logarithmic one, say) overrides this to
+    /// <see langword="false"/> so consumers that assume value ratios equal pixel ratios — such as pivot
+    /// zoom — can take a pixel-space path instead.
+    /// </summary>
+    public virtual bool IsLinear => true;
+
+    /// <summary>
     /// Converts a given value (in chart values) to pixels.
     /// </summary>
     /// <param name="value">The value in chart values.</param>
     /// <returns></returns>
-    public float ToPixels(double value) =>
+    public virtual float ToPixels(double value) =>
         unchecked((float)(_minPx + (value - _minVal) * _m));
 
     /// <summary>
@@ -117,7 +125,7 @@ public class Scaler
     /// </summary>
     /// <param name="pixels">The value in pixels.</param>
     /// <returns></returns>
-    public double ToChartValues(double pixels) =>
+    public virtual double ToChartValues(double pixels) =>
         _minVal + (pixels - _minPx) * _mInv;
 
     /// <summary>
@@ -125,7 +133,7 @@ public class Scaler
     /// </summary>
     /// <param name="value">The value.</param>
     /// <returns></returns>
-    public float MeasureInPixels(double value)
+    public virtual float MeasureInPixels(double value)
     {
         unchecked
         {

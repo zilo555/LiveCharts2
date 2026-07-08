@@ -20,24 +20,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-namespace LiveChartsCore.Kernel.Providers;
+using LiveChartsCore.Drawing;
+using LiveChartsCore.Measure;
+
+namespace LiveChartsCore.Kernel.Sketches;
 
 /// <summary>
-/// A filled band over the axis range, expressed in axis units; drawn by the axis as a
-/// rectangle spanning the draw margin on the other dimension (see
-/// <c>ICartesianAxis.AlternatingBandsPaint</c>).
+/// Produces the <see cref="Scaler"/> an axis uses to map between data values and pixels. Assign one
+/// to <see cref="ICartesianAxis.ScalerProvider"/> to plug in a custom (for example non-linear)
+/// coordinate mapping without a UI-framework-specific axis type; every scaler the engine builds for
+/// the axis — series, gridlines, hit-testing and zoom alike — flows through it.
 /// </summary>
-/// <param name="start">The band start, in axis units.</param>
-/// <param name="end">The band end, in axis units.</param>
-internal readonly struct AxisBand(double start, double end)
+public interface IScalerProvider
 {
     /// <summary>
-    /// Gets the band start, in axis units.
+    /// Builds a scaler for <paramref name="axis"/>.
     /// </summary>
-    public double Start { get; } = start;
-
-    /// <summary>
-    /// Gets the band end, in axis units.
-    /// </summary>
-    public double End { get; } = end;
+    /// <param name="axis">The axis to scale.</param>
+    /// <param name="drawMarginLocation">The draw margin location.</param>
+    /// <param name="drawMarginSize">The draw margin size.</param>
+    /// <param name="bounds">Optional bounds to scale against; when null the axis' own limits are used.</param>
+    Scaler GetScaler(ICartesianAxis axis, LvcPoint drawMarginLocation, LvcSize drawMarginSize, Bounds? bounds);
 }
