@@ -725,13 +725,18 @@ public abstract class CoreAxis<TTextGeometry, TLineGeometry>
     {
         // if the drawer changed since the last frame (built-in <-> renderer, or renderer <-> renderer),
         // sweep the previous drawer's visuals first so they don't linger on the canvas beside the new ones.
-        _ = _lastRenderer.TryGetValue(chart, out var previousRenderer);
+        // hadDrawer distinguishes "the built-in draw was active in a prior frame" (a real switch → sweep it)
+        // from "this is the first invalidate" (nothing was drawn yet → nothing to sweep). Without it, an axis
+        // that starts with a Renderer already set would Delete on its first frame, needlessly tearing down the
+        // axis' paint tasks — risky when the renderer hosts on those same shared paints.
+        var hadDrawer = _lastRenderer.TryGetValue(chart, out var previousRenderer);
         if (!ReferenceEquals(previousRenderer, Renderer))
         {
             if (previousRenderer is not null) previousRenderer.Clear(this, chart);
-            else Delete(chart); // the built-in draw was active: tear down its paint tasks and separators
-            _lastRenderer[chart] = Renderer;
+            else if (hadDrawer) Delete(chart); // the built-in draw was active in a prior frame: tear it down
         }
+        // record the current drawer as the baseline for next frame — including the built-in (null) drawer.
+        _lastRenderer[chart] = Renderer;
 
         if (Renderer is not null) { Renderer.Draw(this, chart); return; }
 
