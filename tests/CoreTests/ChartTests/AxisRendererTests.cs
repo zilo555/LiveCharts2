@@ -176,11 +176,13 @@ public class AxisRendererTests
     {
         public int Calls;
         public Bounds? LastBounds;
+        public Chart? LastChart;
 
         public Scaler GetScaler(ICartesianAxis axis, Chart chart, LvcPoint location, LvcSize size, Bounds? bounds)
         {
             Calls++;
             LastBounds = bounds;
+            LastChart = chart;
             // deliberately squash the plot to half its size so the mapping is provably different from the
             // default scaler — if a call site ignored us and used `new Scaler(...)`, the pixel a data value
             // maps to would not match this provider's own scaler.
@@ -238,6 +240,30 @@ public class AxisRendererTests
         _ = xAxis.GetScaler(engine, new LvcPoint(0, 0), new LvcSize(100, 100), bounds);
 
         Assert.AreSame(bounds, provider.LastBounds, "the optional Bounds argument must be forwarded to the provider untouched");
+    }
+
+    // An axis can be shared across charts, so the provider is told which chart it is scaling for. A provider
+    // that keys per-chart state on it, or that needs the chart to reach the canvas, depends on this being the
+    // measuring chart and not, say, the axis' first chart.
+    [TestMethod]
+    public void Custom_scaler_provider_receives_the_measuring_chart()
+    {
+        var provider = new SpyScalerProvider();
+
+        var chart = new SKCartesianChart
+        {
+            Width = 400,
+            Height = 300,
+            Series = [new LineSeries<double> { Values = [1, 2, 3] }],
+            XAxes = [new Axis { ScalerProvider = provider }],
+            YAxes = [new Axis()],
+        };
+
+        _ = chart.GetImage();
+
+        Assert.AreSame(
+            chart.CoreChart, provider.LastChart,
+            "the chart that measured the axis must be the chart handed to the scaler provider");
     }
 
     // A non-linear (here: logarithmic) X scaler: ToPixels is affine in a WINDOW-INDEPENDENT transform
