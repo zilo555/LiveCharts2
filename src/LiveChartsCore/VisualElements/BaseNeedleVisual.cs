@@ -1,4 +1,4 @@
-﻿// The MIT License(MIT)
+// The MIT License(MIT)
 //
 // Copyright(c) 2021 Alberto Rodriguez Orozco & LiveCharts Contributors
 //
@@ -22,17 +22,28 @@
 
 using System;
 using LiveChartsCore.Drawing;
-using LiveChartsCore.Kernel;
 using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.Painting;
+using LiveChartsCore.Themes;
 
 namespace LiveChartsCore.VisualElements;
 
 /// <summary>
-/// Defines a visual element in a chart that draws a needle.
+/// Defines a visual in a chart that draws a needle.
 /// </summary>
-public abstract class BaseNeedleVisual : VisualElement
+public abstract class BaseNeedleVisual : Visual
 {
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BaseNeedleVisual"/> class.
+    /// </summary>
+    protected BaseNeedleVisual()
+    {
+        // The needle is drawn on top of the pie slices, and below the pie data labels; it used to
+        // get there by pushing this z-index onto its Fill paint task, but a Visual has one task
+        // for the whole visual, so the z-index belongs to the visual now. A user-set ZIndex still
+        // wins, it just overwrites this default.
+        ZIndex = (int)PaintConstants.NeedleFillZIndex;
+    }
 
     /// <summary>
     /// Gets or sets the value.
@@ -45,6 +56,11 @@ public abstract class BaseNeedleVisual : VisualElement
     public double Width { get; set => SetProperty(ref field, value); }
 
     /// <summary>
+    /// Gets or sets the translate transform.
+    /// </summary>
+    public LvcPoint Translate { get; set => SetProperty(ref field, value); }
+
+    /// <summary>
     /// Gets or sets the fill paint.
     /// </summary>
     public Paint? Fill
@@ -52,10 +68,14 @@ public abstract class BaseNeedleVisual : VisualElement
         get;
         set => SetPaintProperty(ref field, value);
     }
+
+    /// <inheritdoc cref="Visual.ApplyStyle(Theme)"/>
+    protected override void ApplyStyle(Theme theme) =>
+        theme.ApplyStyleTo<BaseNeedleVisual>(this);
 }
 
 /// <summary>
-/// Defines a visual element in a chart that draws a needle.
+/// Defines a visual in a chart that draws a needle.
 /// </summary>
 /// <typeparam name="TGeometry">The type of the geometry.</typeparam>
 /// <typeparam name="TLabelGeometry">The type of the label.</typeparam>
@@ -63,13 +83,14 @@ public abstract class BaseNeedleVisual<TGeometry, TLabelGeometry> : BaseNeedleVi
     where TGeometry : BaseNeedleGeometry, new()
     where TLabelGeometry : BaseLabelGeometry, new()
 {
-    private TGeometry? _geometry;
+    private readonly TGeometry _geometry = new();
 
-    /// <inheritdoc cref="VisualElement.OnInvalidated(Chart)"/>
-    protected internal override void OnInvalidated(Chart chart)
+    /// <inheritdoc cref="Visual.DrawnElement"/>
+    protected internal override IDrawnElement? DrawnElement => _geometry;
+
+    /// <inheritdoc cref="Visual.Measure(Chart)"/>
+    protected override void Measure(Chart chart)
     {
-        ApplyTheme<BaseNeedleVisual>(chart.GetTheme());
-
         if (chart is not PieChartEngine pieChart)
             throw new Exception("The needle visual can only be added to a pie chart");
 
@@ -92,51 +113,19 @@ public abstract class BaseNeedleVisual<TGeometry, TLabelGeometry> : BaseNeedleVi
         var startValue = view.MinValue;
         var endValue = view.MaxValue;
 
-        if (_geometry is null)
-        {
-            _geometry = new()
-            {
-                X = cx,
-                Y = cy,
-                Radius = h,
-                Width = (float)Width,
-                RotateTransform = initialRotation - 90
-            };
-            _geometry.Animate(chart);
-        }
-
         _geometry.X = cx;
         _geometry.Y = cy;
         _geometry.Radius = h;
         _geometry.Width = (float)Width;
 
         var p = (Value - startValue) / (endValue - startValue);
-        _geometry.RotateTransform = (float)(initialRotation + p * completeAngle - 90); // -90 to match the pie start angle
+
+        // -90 to match the pie start angle
+        _geometry.RotateTransform = (float)(initialRotation + p * completeAngle - 90);
         _geometry.TranslateTransform = Translate;
 
-        if (Fill is not null)
-        {
-            Fill.ZIndex = Fill.ZIndex == 0 ? PaintConstants.NeedleFillZIndex : Fill.ZIndex;
-            Fill.AddGeometryToPaintTask(chart.Canvas, _geometry);
-            pieChart.Canvas.AddDrawableTask(Fill);
-        }
+        // The needle draws itself with its own paint now, rather than being registered as a
+        // geometry of a Fill paint task.
+        _geometry.Fill = Fill;
     }
-
-    /// <inheritdoc cref="VisualElement.Measure(Chart)"/>
-    public override LvcSize Measure(Chart chart) => new();
-
-    /// <inheritdoc cref="VisualElement.SetParent(DrawnGeometry)"/>
-    protected internal override void SetParent(DrawnGeometry parent)
-    {
-        if (_geometry is null) return;
-        ((IDrawnElement)_geometry).Parent = parent;
-    }
-
-    /// <inheritdoc cref="VisualElement.GetDrawnGeometries"/>
-    protected internal override Animatable?[] GetDrawnGeometries() =>
-        [_geometry];
-
-    /// <inheritdoc cref="ChartElement.GetPaintTasks"/>
-    protected internal override Paint?[] GetPaintTasks() =>
-        [Fill];
 }
