@@ -250,15 +250,18 @@ a look at the [Paints article]({{ website_url }}/docs/{{ platform }}/{{ version 
 
 A `Title` is a `VisualElement` rendered above the map. The same
 `DrawnLabelVisual` used by cartesian and pie charts works here — set
-`Text`, `TextSize`, `Padding`, and the `Paint` that draws it. The map
-shrinks vertically to make room for the title.
+`Text`, `TextSize` and `Padding`. The map shrinks vertically to make
+room for the title.
+
+The theme paints the title, so it follows the light and dark modes on
+its own. Set the `Paint` property to pick the color yourself; a paint
+you set is never overwritten by the theme.
 
 {{~ if xaml ~}}
 <pre><code>&lt;lvc:GeoMap Series="{Binding Series}"&gt;
     &lt;lvc:GeoMap.Title&gt;&lt;!-- mark -->
         &lt;lvc:XamlDrawnLabelVisual
             Text="World population by country"
-            Paint="{lvc:SolidColorPaint Color='#303030'}"
             TextSize="20"
             Padding="{lvc:Padding '12'}"/&gt;
     &lt;/lvc:GeoMap.Title&gt;
@@ -274,8 +277,7 @@ shrinks vertically to make room for the title.
         {
             Text = "World population by country",
             TextSize = 20,
-            Padding = new Padding(12),
-            Paint = new SolidColorPaint(SKColors.Black)
+            Padding = new Padding(12)
         });
 }</code></pre>
 {{~ end ~}}
@@ -286,8 +288,7 @@ shrinks vertically to make room for the title.
     {
         Text = "World population by country",
         TextSize = 20,
-        Padding = new Padding(12),
-        Paint = new SolidColorPaint(SKColors.Black)
+        Padding = new Padding(12)
     });</code></pre>
 {{~ end ~}}
 
