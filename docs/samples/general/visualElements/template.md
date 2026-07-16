@@ -156,11 +156,11 @@ Uses a grid system to place `IDrawnElement` objects.
 
 ### Z-ordering with series
 
-By default, every series whose `ZIndex` is unset draws its fill at `SeriesId + 0.1`, while a `Visual` (or
-`VisualElement`) draws at `0`. That means decorations land **behind** the data they annotate, which is
+By default, every series whose `ZIndex` is unset draws its fill at `SeriesId + 0.1`, while a `Visual`
+draws at `0`. That means decorations land **behind** the data they annotate, which is
 rarely what you want for glyphs, callouts or markers.
 
-To bring a visual to the front, set `Visual.ZIndex` (or `VisualElement.ZIndex`) to a value above
+To bring a visual to the front, set `Visual.ZIndex` to a value above
 the series stack. A safe ceiling is `1000` (above stacked series and below the crosshair layer):
 
 ```csharp
