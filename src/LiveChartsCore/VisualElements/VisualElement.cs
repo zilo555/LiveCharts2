@@ -127,9 +127,15 @@ public abstract class VisualElement : ChartElement, INotifyPropertyChanged, IInt
             // 0 means "do not override"; gauge subclasses bump untouched paints in
             // OnInvalidated, so leaving 0-valued paints alone keeps that path working.
             if (ZIndex != 0) paintTask.ZIndex = ZIndex;
-            chart.Canvas.AddDrawableTask(paintTask);
         }
 
+        // Registering the paints here as well would draw them twice. A paint task lives in exactly
+        // one zone, and a zone is a clip and a draw pass, so the same task in two of them is drawn
+        // once per zone. Adding every paint to the default zone here did exactly that to every
+        // visual that wants another one: a label, a geometry, a line and an svg visual all ask for
+        // the DrawMargin zone in OnInvalidated, and so were drawn once unclipped and once clipped.
+        // The visuals that happen to want the default zone were spared only because the zone
+        // deduplicates. Each visual registers its own paints, in the zone it means.
         OnInvalidated(chart);
     }
 
