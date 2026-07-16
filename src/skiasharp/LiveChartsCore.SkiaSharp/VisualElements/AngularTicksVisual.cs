@@ -30,7 +30,7 @@ using LiveChartsCore.VisualElements;
 namespace LiveChartsCore.SkiaSharpView.VisualElements;
 
 /// <summary>
-/// Defines the angulaar ticks visual.
+/// Defines the angular ticks visual.
 /// </summary>
 public class AngularTicksVisual : BaseAngularTicksVisual<ArcGeometry, LineGeometry, LabelGeometry>
 {

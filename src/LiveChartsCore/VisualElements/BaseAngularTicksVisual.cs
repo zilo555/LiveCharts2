@@ -124,7 +124,7 @@ public abstract class BaseAngularTicksVisual<TArcGeometry, TLineGeometry, TLabel
     protected override void Measure(Chart chart)
     {
         if (chart is not PieChartEngine pieChart)
-            throw new Exception("The AngularThicksVisual can only be added to a pie chart");
+            throw new Exception("The AngularTicksVisual can only be added to a pie chart");
 
         var drawLocation = pieChart.DrawMarginLocation;
         var drawMarginSize = pieChart.DrawMarginSize;
