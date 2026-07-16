@@ -20,13 +20,36 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+using System.Collections.Generic;
+using LiveChartsCore.Drawing;
+using LiveChartsCore.SkiaSharpView.Drawing;
 using LiveChartsCore.SkiaSharpView.Drawing.Geometries;
+using LiveChartsCore.SkiaSharpView.Drawing.Layouts;
 using LiveChartsCore.VisualElements;
 
 namespace LiveChartsCore.SkiaSharpView.VisualElements;
 
 /// <summary>
-/// Defines the angulaar ticks visual.
+/// Defines the angular ticks visual.
 /// </summary>
 public class AngularTicksVisual : BaseAngularTicksVisual<ArcGeometry, LineGeometry, LabelGeometry>
-{ }
+{
+    private readonly AbsoluteLayout _layout = new();
+
+    /// <inheritdoc cref="Visual.DrawnElement"/>
+    // The ticks are many geometries and a Visual draws one element, so they are hosted in a
+    // layout. The layout stays at the origin: the ticks are positioned in absolute chart pixels
+    // and a layout offsets its children by its own location.
+    protected internal override IDrawnElement? DrawnElement => _layout;
+
+    /// <inheritdoc cref="BaseAngularTicksVisual{TArcGeometry, TLineGeometry, TLabelGeometry}.SetChildren(IReadOnlyList{IDrawnElement})"/>
+    protected override void SetChildren(IReadOnlyList<IDrawnElement> children)
+    {
+        _layout.Children.Clear();
+
+        // The base class builds these from the geometry types this class closed over, so they are
+        // all SkiaSharp geometries.
+        foreach (var child in children)
+            _layout.Children.Add((IDrawnElement<SkiaSharpDrawingContext>)child);
+    }
+}

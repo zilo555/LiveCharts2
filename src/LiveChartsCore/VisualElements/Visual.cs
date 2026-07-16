@@ -40,14 +40,16 @@ public abstract class Visual : ChartElement, IInternalInteractable
     public event VisualElementHandler? PointerDown;
 
     /// <summary>
-    /// Gets or sets the easing function.
+    /// Gets or sets the easing function, when null the chart's
+    /// <see cref="IChartView.EasingFunction"/> is used.
     /// </summary>
-    public Func<float, float>? Easing { get; set; } = EasingFunctions.EaseOut;
+    public Func<float, float>? Easing { get; set; }
 
     /// <summary>
-    /// Gets or sets the animation speed.
+    /// Gets or sets the animation speed, when null the chart's
+    /// <see cref="IChartView.AnimationsSpeed"/> is used.
     /// </summary>
-    public TimeSpan AnimationSpeed { get; set; } = TimeSpan.FromMilliseconds(300);
+    public TimeSpan? AnimationSpeed { get; set; }
 
     /// <summary>
     /// Gets or sets the z-index of the drawn task that hosts this visual.
@@ -74,12 +76,30 @@ public abstract class Visual : ChartElement, IInternalInteractable
         if (_drawnTask is null || _drawnTask.IsEmpty)
         {
             if (DrawnElement is Animatable animatable)
-                animatable.Animate(Easing, AnimationSpeed);
+                Animate(animatable, chart);
 
             _drawnTask = chart.Canvas.AddGeometry(DrawnElement);
         }
 
         if (ZIndex != 0) _drawnTask.ZIndex = ZIndex;
+    }
+
+    // A visual that states neither easing nor speed is pointed at the chart's shared Animation,
+    // which the chart rebuilds in place every measure: that is what lets a runtime AnimationsSpeed
+    // change reach an element that is only animated once, when it is first drawn (see #1926).
+    // Stating either one opts out of sharing, so it resolves against the view and is fixed from
+    // then on, which is the point of setting it.
+    private void Animate(Animatable animatable, Chart chart)
+    {
+        if (Easing is null && AnimationSpeed is null)
+        {
+            animatable.Animate(chart);
+            return;
+        }
+
+        animatable.Animate(
+            Easing ?? chart.View.EasingFunction,
+            AnimationSpeed ?? chart.View.AnimationsSpeed);
     }
 
     /// <inheritdoc cref="IInteractable.GetHitBox"/>
