@@ -1,3 +1,4 @@
+using System.Globalization;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Extensions;
@@ -32,7 +33,7 @@ public sealed class AngularGaugeTests
             VisualElements = [
                 new AngularTicksVisual
                 {
-                    Labeler = value => value.ToString("N1"),
+                    Labeler = value => value.ToString("N1", CultureInfo.InvariantCulture),
                     LabelsSize = 16,
                     LabelsOuterOffset = 15,
                     OuterOffset = 65,
@@ -63,7 +64,7 @@ public sealed class AngularGaugeTests
         chart.VisualElements = [
             new AngularTicksVisual
             {
-                Labeler = value => value.ToString("N1"),
+                Labeler = value => value.ToString("N1", CultureInfo.InvariantCulture),
                 LabelsSize = 16,
                 LabelsOuterOffset = 15,
                 OuterOffset = 65,
